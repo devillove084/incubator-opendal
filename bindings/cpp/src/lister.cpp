@@ -17,36 +17,66 @@
  * under the License.
  */
 
-#include "data_structure.hpp"
 #include "lib.rs.h"
 #include "opendal.hpp"
+#include "opendal_type.hpp"
 #include "utils/ffi_converter.hpp"
 
 namespace opendal {
 
-void Lister::Destroy() noexcept {
-  if (lister_) {
-    ffi::delete_lister(lister_);
-    lister_ = nullptr;
-  }
-}
+class Lister::ListerImpl {
+ public:
+  ListerImpl(ffi::Lister *lister) : lister_(lister) {}
 
-Lister::Lister(ffi::Lister *lister) noexcept : lister_{lister} {}
-
-Lister::Lister(Lister &&other) noexcept : lister_{other.lister_} {
-  other.lister_ = nullptr;
-}
-
-Lister::~Lister() noexcept { Destroy(); }
-
-std::optional<Entry> Lister::Next() {
-  auto entry = lister_->next();
-
-  if (!entry.has_value) {
-    return std::nullopt;
+  ~ListerImpl() {
+    if (lister_) {
+      ffi::delete_lister(lister_);
+      lister_ = nullptr;
+    }
   }
 
-  return utils::parse_entry(std::move(entry.value));
+  std::optional<Entry> next() {
+    auto rust_entry = lister_->next();
+    if (!rust_entry.has_value) {
+      return std::nullopt;
+    }
+    return utils::parse_entry(std::move(rust_entry.value));
+  }
+
+ private:
+  ffi::Lister *lister_{nullptr};
+};
+
+Lister::Lister(ffi::Lister *lister)
+    : lister_impl_(std::make_unique<ListerImpl>(lister)) {}
+
+Lister::Lister(Lister &&other) noexcept = default;
+Lister::~Lister() noexcept = default;
+
+std::optional<Entry> Lister::Next() { return lister_impl_->next(); }
+
+Lister::Iterator Lister::begin() { return Iterator(*this); }
+Lister::Iterator Lister::end() { return Iterator(*this, true); }
+
+// Lister::Iterator implementation
+Lister::Iterator::Iterator(Lister &lister) : lister_(lister) {
+  current_entry_ = lister_.Next();
 }
+
+Entry Lister::Iterator::operator*() { return current_entry_.value(); }
+
+Lister::Iterator &Lister::Iterator::operator++() {
+  if (current_entry_) {
+    current_entry_ = lister_.Next();
+  }
+  return *this;
+}
+
+bool Lister::Iterator::operator!=(const Iterator &other) const {
+  return current_entry_ != std::nullopt || other.current_entry_ != std::nullopt;
+}
+
+Lister::Iterator::Iterator(Lister &lister, bool /*end*/) noexcept
+    : lister_(lister) {}
 
 }  // namespace opendal

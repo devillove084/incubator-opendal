@@ -21,20 +21,21 @@
 
 #include <cstring>
 #include <iostream>
-#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "data_structure.hpp"
+#include "opendal_type.hpp"
 
 namespace opendal {
 
 namespace ffi {
-class Operator;
-class Reader;
-class Lister;
+struct Operator;
+struct Reader;
+struct Lister;
+struct Metadata;
+struct Capability;
 }  // namespace ffi
 
 class Reader;
@@ -46,8 +47,6 @@ class Lister;
  */
 class Operator {
  public:
-  Operator() noexcept;
-
   /**
    * @brief Construct a new Operator object
    *
@@ -166,12 +165,13 @@ class Operator {
 
   Lister GetLister(std::string_view path);
   Capability Info();
- 
-  private:
-   void Destroy() noexcept;
- 
-   ffi::Operator *operator_{nullptr};
- };
+
+ private:
+  class OperatorImpl;
+  std::unique_ptr<OperatorImpl> operator_impl_;
+
+  //   ffi::Operator *operator_{nullptr};
+};
 
 /**
  * @class Reader
@@ -184,22 +184,18 @@ class Operator {
  */
 class Reader {
  public:
+  explicit Reader(opendal::ffi::Reader *);
   Reader(Reader &&other) noexcept;
-
   ~Reader() noexcept;
 
   std::streamsize Read(void *s, std::streamsize n);
-
   std::streampos Seek(std::streamoff off, std::ios_base::seekdir way);
 
  private:
   friend class Operator;
 
-  Reader(ffi::Reader *pointer) noexcept;
-
-  void Destroy() noexcept;
-
-  ffi::Reader *reader_{nullptr};
+  class ReaderImpl;
+  std::unique_ptr<ReaderImpl> reader_impl_;
 };
 
 /**
@@ -267,7 +263,8 @@ class ReaderStream : public std::istream {
                            std::ios_base::openmode which) override {
       if (dir == std::ios_base::cur && off == 0) {
         // tellg() case - return current position
-        return buffer_start_pos_ + static_cast<std::streamoff>(gptr() - eback());
+        return buffer_start_pos_ +
+               static_cast<std::streamoff>(gptr() - eback());
       }
 
       // Actual seek operation
@@ -311,8 +308,8 @@ class ReaderStream : public std::istream {
  */
 class Lister {
  public:
+  Lister(opendal::ffi::Lister *lister);
   Lister(Lister &&other) noexcept;
-
   ~Lister() noexcept;
 
   /**
@@ -329,27 +326,14 @@ class Lister {
     using pointer = Entry *;
     using reference = Entry &;
 
-    Iterator(Lister &lister) : lister_{lister} {
-      current_entry_ = lister_.Next();
-    }
-
-    Entry operator*() { return current_entry_.value(); }
-
-    Iterator &operator++() {
-      if (current_entry_) {
-        current_entry_ = lister_.Next();
-      }
-      return *this;
-    }
-
-    bool operator!=(const Iterator &other) const {
-      return current_entry_ != std::nullopt ||
-             other.current_entry_ != std::nullopt;
-    }
+    Iterator(Lister &lister);
+    Entry operator*();
+    Iterator &operator++();
+    bool operator!=(const Iterator &other) const;
 
    protected:
     // Only used for end iterator
-    Iterator(Lister &lister, bool /*end*/) noexcept : lister_(lister) {}
+    Iterator(Lister &lister, bool /*end*/) noexcept;
 
    private:
     friend class Lister;
@@ -365,17 +349,14 @@ class Lister {
    */
   std::optional<Entry> Next();
 
-  Iterator begin() { return Iterator(*this); }
-  Iterator end() { return Iterator(*this, true); }
+  Iterator begin();
+  Iterator end();
 
  private:
   friend class Operator;
 
-  Lister(ffi::Lister *pointer) noexcept;
-
-  void Destroy() noexcept;
-
-  ffi::Lister *lister_{nullptr};
+  class ListerImpl;
+  std::unique_ptr<ListerImpl> lister_impl_;
 };
 
 }  // namespace opendal

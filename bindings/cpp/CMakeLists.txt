@@ -29,6 +29,7 @@ include(FetchContent)
 set(OPENDAL_GOOGLETEST_VERSION 1.15.2 CACHE STRING "version of GoogleTest, 'external' to fallback to find_package()")
 set(OPENDAL_CPPCORO_VERSION a4ef65281814b18fdd1ac5457d3e219347ec6cb8 CACHE STRING "version of cppcoro")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -144,25 +145,29 @@ add_custom_target(cargo_build
         COMMENT "Running cargo..."
 )
 
-add_library(opendal_cpp STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP})
+add_library(opendal_cpp STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP} ${RUST_LIB})
 target_sources(opendal_cpp PUBLIC ${CPP_HEADER_FILE})
-target_sources(opendal_cpp PRIVATE ${RUST_HEADER_FILE})
+target_sources(opendal_cpp PUBLIC ${RUST_HEADER_FILE})
 target_include_directories(opendal_cpp PUBLIC ${CPP_INCLUDE_DIR})
 if (OPENDAL_ENABLE_ASYNC)
     target_include_directories(opendal_cpp PUBLIC ${CARGO_TARGET_DIR}/cxxbridge)
     target_compile_options(opendal_cpp PUBLIC -include ${PROJECT_SOURCE_DIR}/include/async_defs.hpp)
 endif()
 target_link_libraries(opendal_cpp PUBLIC ${RUST_LIB})
-target_link_libraries(opendal_cpp PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(opendal_cpp PUBLIC ${CMAKE_DL_LIBS})
 
 set_target_properties(opendal_cpp
         PROPERTIES ADDITIONAL_CLEAN_FILES ${CARGO_TARGET_DIR}
 )
 add_dependencies(opendal_cpp cargo_build)
 
+# target_link_options(opendal_cpp PRIVATE
+#         "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/export.sym"
+# )
+
 if (OPENDAL_ENABLE_ADDRESS_SANITIZER)
-    target_compile_options(opendal_cpp PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
-    target_link_options(opendal_cpp PRIVATE -fsanitize=leak,address,undefined)
+    target_compile_options(opendal_cpp PUBLIC -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+    target_link_options(opendal_cpp PUBLIC -fsanitize=leak,address,undefined)
 endif()
 
 # Platform-specific test configuration

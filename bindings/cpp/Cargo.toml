@@ -44,3 +44,10 @@ cxx-build = "1.0"
 
 [features]
 async = ["cxx-async", "cxx/c++20"]
+
+[profile.release]
+codegen-units = 1 # 更好的优化
+lto = true        # 启用链接时优化
+
+[profile.dev]
+lto = "thin" # 开发模式下使用轻量级LTO

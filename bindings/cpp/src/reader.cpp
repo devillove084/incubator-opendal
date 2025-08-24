@@ -22,25 +22,6 @@
 
 namespace opendal {
 
-void Reader::Destroy() noexcept {
-  if (reader_) {
-    ffi::delete_reader(reader_);
-    reader_ = nullptr;
-  }
-}
-
-Reader::Reader(ffi::Reader *reader) noexcept : reader_{reader} {}
-
-Reader::Reader(Reader &&other) noexcept : reader_{other.reader_} {
-  other.reader_ = nullptr;
-}
-
-Reader::~Reader() noexcept { Destroy(); }
-
-std::streamsize Reader::Read(void *s, std::streamsize n) {
-  return reader_->read(rust::Slice<uint8_t>(static_cast<uint8_t *>(s), n));
-}
-
 ffi::SeekDir rust_seek_dir(std::ios_base::seekdir dir) {
   switch (dir) {
     case std::ios_base::beg:
@@ -57,8 +38,41 @@ ffi::SeekDir rust_seek_dir(std::ios_base::seekdir dir) {
   }
 }
 
-std::streampos Reader::Seek(std::streamoff off, std::ios_base::seekdir dir) {
-  return reader_->seek(off, rust_seek_dir(dir));
+class Reader::ReaderImpl {
+ public:
+  ReaderImpl(ffi::Reader* reader) : reader_(reader) {}
+
+  ~ReaderImpl() noexcept {
+    if (reader_) {
+      ffi::delete_reader(reader_);
+      reader_ = nullptr;
+    }
+  }
+
+  std::streamsize read(void* s, std::streamsize n) {
+    return reader_->read(rust::Slice<uint8_t>(static_cast<uint8_t*>(s), n));
+  }
+
+  std::streampos seek(std::streamoff off, std::ios_base::seekdir way) {
+    return reader_->seek(off, rust_seek_dir(way));
+  }
+
+ private:
+  ffi::Reader* reader_{nullptr};
+};
+
+Reader::Reader(ffi::Reader* reader)
+    : reader_impl_(std::make_unique<ReaderImpl>(reader)) {}
+
+Reader::Reader(Reader&& other) noexcept = default;
+Reader::~Reader() noexcept = default;
+
+std::streamsize Reader::Read(void* s, std::streamsize n) {
+  return reader_impl_->read(s, n);
+}
+
+std::streampos Reader::Seek(std::streamoff off, std::ios_base::seekdir way) {
+  return reader_impl_->seek(off, way);
 }
 
 }  // namespace opendal

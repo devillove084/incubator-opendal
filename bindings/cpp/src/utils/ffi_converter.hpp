@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "data_structure.hpp"
+#include "opendal_type.hpp"
 #include "lib.rs.h"
 
 namespace opendal::utils {

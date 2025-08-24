@@ -20,13 +20,22 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
-#include "async.rs.h"
+namespace opendal::ffi::async_op {
+struct RustFutureRead;
+struct RustFutureWrite;
+struct RustFutureList;
+struct RustFutureBool;
+struct RustFutureReaderId;
+struct RustFutureListerId;
+struct RustFutureEntryOption;
+struct Operator;
+}  // namespace opendal::ffi::async_op
 
 namespace opendal::async {
 
@@ -40,42 +49,43 @@ class Operator {
   Operator &operator=(const Operator &) = delete;
 
   // Enable move
-  Operator(Operator &&) = default;
-  Operator &operator=(Operator &&) = default;
-  ~Operator() = default;
+  Operator(Operator &&) noexcept;
+  Operator &operator=(Operator &&) noexcept;
+  ~Operator();
 
   using ReadFuture = opendal::ffi::async_op::RustFutureRead;
-  ReadFuture Read(std::string_view path);
+  auto Read(std::string_view path) -> ReadFuture;
 
   using WriteFuture = opendal::ffi::async_op::RustFutureWrite;
-  WriteFuture Write(std::string_view path, std::span<uint8_t> data);
+  auto Write(std::string_view path, std::span<uint8_t> data) -> WriteFuture;
 
   using ListFuture = opendal::ffi::async_op::RustFutureList;
-  ListFuture List(std::string_view path);
+  auto List(std::string_view path) -> ListFuture;
 
   using ExistsFuture = opendal::ffi::async_op::RustFutureBool;
-  ExistsFuture Exists(std::string_view path);
+  auto Exists(std::string_view path) -> ExistsFuture;
 
   using CreateDirFuture = opendal::ffi::async_op::RustFutureWrite;
-  CreateDirFuture CreateDir(std::string_view path);
+  auto CreateDir(std::string_view path) -> CreateDirFuture;
 
   using CopyFuture = opendal::ffi::async_op::RustFutureWrite;
-  CopyFuture Copy(std::string_view from, std::string_view to);
+  auto Copy(std::string_view from, std::string_view to) -> CopyFuture;
 
   using RenameFuture = opendal::ffi::async_op::RustFutureWrite;
-  RenameFuture Rename(std::string_view from, std::string_view to);
+  auto Rename(std::string_view from, std::string_view to) -> RenameFuture;
 
   using DeleteFuture = opendal::ffi::async_op::RustFutureWrite;
-  DeleteFuture DeletePath(std::string_view path);
+  auto DeletePath(std::string_view path) -> DeleteFuture;
 
   using ReaderFuture = opendal::ffi::async_op::RustFutureReaderId;
-  ReaderFuture GetReader(std::string_view path);
+  auto GetReader(std::string_view path) -> ReaderFuture;
 
   using ListerFuture = opendal::ffi::async_op::RustFutureListerId;
-  ListerFuture GetLister(std::string_view path);
+  auto GetLister(std::string_view path) -> ListerFuture;
 
  private:
-  rust::Box<opendal::ffi::async_op::Operator> operator_;
+  class OperatorImpl;
+  std::unique_ptr<OperatorImpl> operator_impl_;
 };
 
 /**
@@ -106,7 +116,7 @@ class Reader {
    * @param len Number of bytes to read
    * @return Future that resolves to the read data
    */
-  ReadFuture Read(uint64_t start, uint64_t len);
+  auto Read(uint64_t start, uint64_t len) -> ReadFuture;
 
  private:
   friend class Operator;
@@ -143,7 +153,7 @@ class Lister {
    * @return Future that resolves to the next entry path, or empty string if no
    * more entries
    */
-  NextFuture Next();
+  auto Next() -> NextFuture;
 
  private:
   friend class Operator;

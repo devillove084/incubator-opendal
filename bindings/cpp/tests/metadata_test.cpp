@@ -17,7 +17,6 @@
  * under the License.
  */
 
-#include <chrono>
 #include <string>
 #include <unordered_map>
 
@@ -26,29 +25,29 @@
 
 class MetadataTest : public ::testing::Test {
  protected:
-  opendal::Operator op;
+  std::unique_ptr<opendal::Operator> op;
   std::string scheme = "memory";
   std::unordered_map<std::string, std::string> config;
 
   void SetUp() override {
-    op = opendal::Operator(scheme, config);
-    EXPECT_TRUE(op.Available());
+    op.reset(new opendal::Operator(scheme, config));
+    EXPECT_TRUE(op->Available());
   }
 
   // Helper methods for BDD-style testing
   void given_a_file_exists_with_content(const std::string& path,
                                         const std::string& content) {
-    op.Write(path, content);
-    EXPECT_TRUE(op.Exists(path));
+    op->Write(path, content);
+    EXPECT_TRUE(op->Exists(path));
   }
 
   void given_a_directory_exists(const std::string& path) {
-    op.CreateDir(path);
-    EXPECT_TRUE(op.Exists(path));
+    op->CreateDir(path);
+    EXPECT_TRUE(op->Exists(path));
   }
 
   opendal::Metadata when_i_get_metadata_for(const std::string& path) {
-    return op.Stat(path);
+    return op->Stat(path);
   }
 
   void then_metadata_should_indicate_file_type(
@@ -306,8 +305,7 @@ TEST_F(MetadataTest, CopyAndMove) {
 
   // And both should function correctly
   EXPECT_EQ(copied_metadata.IsFile(), moved_metadata.IsFile());
-  EXPECT_EQ(copied_metadata.ContentLength(),
-            moved_metadata.ContentLength());
+  EXPECT_EQ(copied_metadata.ContentLength(), moved_metadata.ContentLength());
 }
 
 TEST_F(MetadataTest, DefaultConstruction) {
@@ -354,8 +352,7 @@ TEST_F(MetadataTest, DifferentFileSizes) {
   then_metadata_should_indicate_file_type(large_metadata);
 
   // And their sizes should differ appropriately
-  EXPECT_LT(small_metadata.ContentLength(),
-            large_metadata.ContentLength());
+  EXPECT_LT(small_metadata.ContentLength(), large_metadata.ContentLength());
   EXPECT_EQ(small_metadata.ContentLength(), small_content.length());
   EXPECT_EQ(large_metadata.ContentLength(), large_content.length());
 }
@@ -593,7 +590,7 @@ TEST_F(MetadataTest, AfterFileModification) {
   auto initial_metadata = when_i_get_metadata_for(file_path);
 
   // And I modify the file content
-  op.Write(file_path, modified_content);
+  op->Write(file_path, modified_content);
 
   // And I get metadata again
   auto modified_metadata = when_i_get_metadata_for(file_path);

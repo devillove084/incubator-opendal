@@ -96,141 +96,184 @@ Metadata parse_meta_data(ffi::Metadata &&meta) {
   return metadata;
 }
 
-Operator::Operator() noexcept = default;
+class Operator::OperatorImpl {
+ public:
+  OperatorImpl(std::string_view scheme,
+               const std::unordered_map<std::string, std::string> &config) {
+    auto rust_map = rust::Vec<ffi::HashMapValue>();
+    rust_map.reserve(config.size());
 
-void Operator::Destroy() noexcept {
-  if (operator_) {
-    ffi::delete_operator(operator_);
-    operator_ = nullptr;
+    for (auto &[k, v] : config) {
+      rust_map.push_back({utils::rust_string(k), utils::rust_string(v)});
+    }
+
+    operator_ = ffi::new_operator(utils::rust_str(scheme), rust_map);
   }
-}
+
+  ~OperatorImpl() {
+    if (operator_) {
+      ffi::delete_operator(operator_);
+      operator_ = nullptr;
+    }
+  }
+
+  bool available() const { return operator_ != nullptr; }
+
+  std::string read(std::string_view path) {
+    auto rust_vec = operator_->read(utils::rust_str(path));
+    return {rust_vec.begin(), rust_vec.end()};
+  }
+
+  void write(std::string_view path, std::string_view data) {
+    rust::Vec<uint8_t> vec;
+    std::copy(data.begin(), data.end(), std::back_inserter(vec));
+    operator_->write(utils::rust_str(path), vec);
+  }
+
+  bool exists(std::string_view path) {
+    return operator_->exists(utils::rust_str(path));
+  }
+
+  void create_dir(std::string_view path) {
+    operator_->create_dir(utils::rust_str(path));
+  }
+
+  void copy(std::string_view src, std::string_view dst) {
+    operator_->copy(utils::rust_str(src), utils::rust_str(dst));
+  }
+
+  void rename(std::string_view src, std::string_view dst) {
+    operator_->rename(utils::rust_str(src), utils::rust_str(dst));
+  }
+
+  void remove(std::string_view path) {
+    operator_->remove(utils::rust_str(path));
+  }
+
+  Metadata stat(std::string_view path) {
+    return parse_meta_data(operator_->stat(utils::rust_str(path)));
+  }
+
+  std::vector<Entry> list(std::string_view path) {
+    auto rust_vec = operator_->list(utils::rust_str(path));
+
+    std::vector<Entry> entries;
+    entries.reserve(rust_vec.size());
+    for (auto &&entry : rust_vec) {
+      entries.emplace_back(utils::parse_entry(std::move(entry)));
+    }
+
+    return entries;
+  }
+
+  ffi::Lister *get_lister(std::string_view path) {
+    return operator_->lister(utils::rust_str(path));
+  }
+
+  ffi::Reader *get_reader(std::string_view path) {
+    return operator_->reader(utils::rust_str(path));
+  }
+
+  Capability info() {
+    auto op_info = operator_->info();
+    return Capability{
+        .stat = op_info.stat,
+        .stat_with_if_match = op_info.stat_with_if_match,
+        .stat_with_if_none_match = op_info.stat_with_if_none_match,
+        .read = op_info.read,
+        .read_with_if_match = op_info.read_with_if_match,
+        .read_with_if_none_match = op_info.read_with_if_none_match,
+        .read_with_override_cache_control =
+            op_info.read_with_override_cache_control,
+        .read_with_override_content_disposition =
+            op_info.read_with_override_content_disposition,
+        .read_with_override_content_type =
+            op_info.read_with_override_content_type,
+        .write = op_info.write,
+        .write_can_multi = op_info.write_can_multi,
+        .write_can_empty = op_info.write_can_empty,
+        .write_can_append = op_info.write_can_append,
+        .write_with_content_type = op_info.write_with_content_type,
+        .write_with_content_disposition =
+            op_info.write_with_content_disposition,
+        .write_with_cache_control = op_info.write_with_cache_control,
+        .write_multi_max_size = op_info.write_multi_max_size,
+        .write_multi_min_size = op_info.write_multi_min_size,
+        .write_total_max_size = op_info.write_total_max_size,
+        .create_dir = op_info.create_dir,
+        .delete_feature = op_info.delete_feature,
+        .copy = op_info.copy,
+        .rename = op_info.rename,
+        .list = op_info.list,
+        .list_with_limit = op_info.list_with_limit,
+        .list_with_start_after = op_info.list_with_start_after,
+        .list_with_recursive = op_info.list_with_recursive,
+        .presign = op_info.presign,
+        .presign_read = op_info.presign_read,
+        .presign_stat = op_info.presign_stat,
+        .presign_write = op_info.presign_write,
+        .shared = op_info.shared,
+    };
+  }
+
+ private:
+  ffi::Operator *operator_{nullptr};
+};
 
 Operator::Operator(std::string_view scheme,
-                   const std::unordered_map<std::string, std::string> &config) {
-  auto rust_map = rust::Vec<ffi::HashMapValue>();
-  rust_map.reserve(config.size());
+                   const std::unordered_map<std::string, std::string> &config)
+    : operator_impl_(std::make_unique<OperatorImpl>(scheme, config)) {}
 
-  for (auto &[k, v] : config) {
-    rust_map.push_back({utils::rust_string(k), utils::rust_string(v)});
-  }
+Operator::Operator(Operator &&other) noexcept = default;
+Operator &Operator::operator=(Operator &&other) noexcept = default;
+Operator::~Operator() noexcept = default;
 
-  operator_ = ffi::new_operator(utils::rust_str(scheme), rust_map);
-}
+bool Operator::Available() const { return operator_impl_->available(); }
 
-Operator::~Operator() noexcept { Destroy(); }
-
-Operator::Operator(Operator &&other) noexcept : operator_(other.operator_) {
-  other.operator_ = nullptr;
-}
-
-Operator &Operator::operator=(Operator &&other) noexcept {
-  if (this != &other) {
-    Destroy();
-
-    operator_ = other.operator_;
-    other.operator_ = nullptr;
-  }
-
-  return *this;
-}
-
-bool Operator::Available() const { return operator_ != nullptr; }
-
-// We can't avoid copy, because std::vector hides the internal structure.
-// std::vector doesn't support init from a pointer without copy.
 std::string Operator::Read(std::string_view path) {
-  auto rust_vec = operator_->read(utils::rust_str(path));
-  return {rust_vec.begin(), rust_vec.end()};
+  return operator_impl_->read(path);
 }
 
 void Operator::Write(std::string_view path, std::string_view data) {
-  rust::Vec<uint8_t> vec;
-  std::copy(data.begin(), data.end(), std::back_inserter(vec));
-  operator_->write(utils::rust_str(path), vec);
+  operator_impl_->write(path, data);
 }
 
 bool Operator::Exists(std::string_view path) {
-  return operator_->exists(utils::rust_str(path));
+  return operator_impl_->exists(path);
 }
 
 bool Operator::IsExist(std::string_view path) { return Exists(path); }
 
 void Operator::CreateDir(std::string_view path) {
-  operator_->create_dir(utils::rust_str(path));
+  operator_impl_->create_dir(path);
 }
 
 void Operator::Copy(std::string_view src, std::string_view dst) {
-  operator_->copy(utils::rust_str(src), utils::rust_str(dst));
+  operator_impl_->copy(src, dst);
 }
 
 void Operator::Rename(std::string_view src, std::string_view dst) {
-  operator_->rename(utils::rust_str(src), utils::rust_str(dst));
+  operator_impl_->rename(src, dst);
 }
 
-void Operator::Remove(std::string_view path) {
-  operator_->remove(utils::rust_str(path));
-}
+void Operator::Remove(std::string_view path) { operator_impl_->remove(path); }
 
 Metadata Operator::Stat(std::string_view path) {
-  return parse_meta_data(operator_->stat(utils::rust_str(path)));
+  return operator_impl_->stat(path);
 }
 
 std::vector<Entry> Operator::List(std::string_view path) {
-  auto rust_vec = operator_->list(utils::rust_str(path));
-
-  std::vector<Entry> entries;
-  entries.reserve(rust_vec.size());
-  for (auto &&entry : rust_vec) {
-    entries.emplace_back(utils::parse_entry(std::move(entry)));
-  }
-
-  return entries;
+  return operator_impl_->list(path);
 }
 
 Lister Operator::GetLister(std::string_view path) {
-  return operator_->lister(utils::rust_str(path));
+  return Lister(operator_impl_->get_lister(path));
 }
 
 Reader Operator::GetReader(std::string_view path) {
-  return operator_->reader(utils::rust_str(path));
+  return Reader(operator_impl_->get_reader(path));
 }
 
+Capability Operator::Info() { return operator_impl_->info(); }
+
 }  // namespace opendal
-opendal::Capability opendal::Operator::Info() {
-  auto op_info = operator_->info();
-  return Capability{
-      .stat = op_info.stat,
-      .stat_with_if_match = op_info.stat_with_if_match,
-      .stat_with_if_none_match = op_info.stat_with_if_none_match,
-      .read = op_info.read,
-      .read_with_if_match = op_info.read_with_if_match,
-      .read_with_if_none_match = op_info.read_with_if_none_match,
-      .read_with_override_cache_control = op_info.read_with_override_cache_control,
-      .read_with_override_content_disposition =
-          op_info.read_with_override_content_disposition,
-      .read_with_override_content_type = op_info.read_with_override_content_type,
-      .write = op_info.write,
-      .write_can_multi = op_info.write_can_multi,
-      .write_can_empty = op_info.write_can_empty,
-      .write_can_append = op_info.write_can_append,
-      .write_with_content_type = op_info.write_with_content_type,
-      .write_with_content_disposition = op_info.write_with_content_disposition,
-      .write_with_cache_control = op_info.write_with_cache_control,
-      .write_multi_max_size = op_info.write_multi_max_size,
-      .write_multi_min_size = op_info.write_multi_min_size,
-      .write_total_max_size = op_info.write_total_max_size,
-      .create_dir = op_info.create_dir,
-      .delete_feature = op_info.delete_feature,
-      .copy = op_info.copy,
-      .rename = op_info.rename,
-      .list = op_info.list,
-      .list_with_limit = op_info.list_with_limit,
-      .list_with_start_after = op_info.list_with_start_after,
-      .list_with_recursive = op_info.list_with_recursive,
-      .presign = op_info.presign,
-      .presign_read = op_info.presign_read,
-      .presign_stat = op_info.presign_stat,
-      .presign_write = op_info.presign_write,
-      .shared = op_info.shared,
-  };
-}
